@@ -27,6 +27,7 @@
 #define LED_PIN PICO_DEFAULT_LED_PIN
 
 #define BUFFER_SIZE 2560
+#define SUM_AGV_BYTE 4
 
 // set this to determine sample rate
 #define CLOCK_DEV_FREQUENCY_500_KHZ 96
@@ -57,13 +58,13 @@ dma_channel_config cfg;
 uint dma_chan;
 typedef struct
 {
+	uint8_t uart_buffer[BUFFER_SIZE];
+	uint8_t usb_buffer[BUFFER_SIZE];
 	cdc_line_coding_t usb_lc;
 	cdc_line_coding_t uart_lc;
 	mutex_t lc_mtx;
-	uint8_t uart_buffer[BUFFER_SIZE];
 	uint32_t uart_pos;
 	mutex_t uart_mtx;
-	uint8_t usb_buffer[BUFFER_SIZE];
 	uint32_t usb_pos;
 	mutex_t usb_mtx;
 } uart_data_t;
@@ -219,7 +220,7 @@ void setup()
 	);
 
 	// set sample rate
-	adc_set_clkdiv(CLOCK_DIV);
+	adc_set_clkdiv(CLOCK_DIV / SUM_AGV_BYTE);
 
 	sleep_ms(1000);
 	// Set up the DMA to start transferring data as soon as it appears in FIFO
@@ -253,9 +254,15 @@ typedef union
 static void convert_data_16bit(uint16_t *data, int len)
 {
 	sample_data_u sample_data;
-	for (uint32_t i = 0; i < len; i++)
+	for (uint32_t i = 0; i < len / SUM_AGV_BYTE; i++)
 	{
-		sample_data.d16 = data[i];
+		uint16_t avg = 0;
+		for (size_t j = 0; j < SUM_AGV_BYTE; j++)
+		{
+			avg += data[i * SUM_AGV_BYTE + j];
+		}
+		avg = avg / SUM_AGV_BYTE;
+		sample_data.d16 = avg;
 		data[i] = (sample_data.d8.d2 << 8) | sample_data.d8.d1 | 0x80;
 	}
 }
@@ -287,17 +294,17 @@ int main(void)
 
 	multicore_launch_core1(core1_entry);
 
-	sample_data_t sample_buf[N_SAMPLES];
+	sample_data_t sample_buf[N_SAMPLES * SUM_AGV_BYTE];
 	while (1)
 	{
 		if (tud_cdc_n_connected(0))
 		{
-			sample(sample_buf, N_SAMPLES);
+			sample(sample_buf, N_SAMPLES * SUM_AGV_BYTE);
 #ifndef SAMPLE_BIT_8
-			convert_data_16bit(sample_buf, N_SAMPLES);
+			convert_data_16bit(sample_buf, N_SAMPLES * SUM_AGV_BYTE);
 #endif
 #if 1
-			tud_cdc_n_write(0, sample_buf, sizeof(sample_buf));
+			tud_cdc_n_write(0, sample_buf, N_SAMPLES * sizeof(sample_data_t));
 			// tud_cdc_n_write_flush(0);
 #else
 			mutex_enter_blocking(&ud->uart_mtx);
