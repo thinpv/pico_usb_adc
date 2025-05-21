@@ -63,7 +63,7 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
 	ESP_ERROR_CHECK(adc_continuous_new_handle(&adc_config, &handle));
 
 	adc_continuous_config_t dig_cfg = {
-			.sample_freq_hz = 20 * 1000,
+			.sample_freq_hz = 10 * 1000,
 			.conv_mode = EXAMPLE_ADC_CONV_MODE,
 			.format = EXAMPLE_ADC_OUTPUT_TYPE,
 	};
@@ -288,12 +288,19 @@ void app_main(void)
 
 		char unit[] = EXAMPLE_ADC_UNIT_STR(EXAMPLE_ADC_UNIT);
 
+		uint16_t buff[EXAMPLE_READ_LEN];
+		bool have_data = false;
+		int j = 0;
+
 		while (1)
 		{
+			have_data = false;
 			ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 0);
 			if (ret == ESP_OK)
 			{
+				have_data = true;
 				// ESP_LOGI("TASK", "ret is %x, ret_num is %" PRIu32 " bytes", ret, ret_num);
+				j = 0;
 				for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES)
 				{
 					adc_digi_output_data_t *p = (adc_digi_output_data_t *)&result[i];
@@ -303,24 +310,22 @@ void app_main(void)
 					if (chan_num < SOC_ADC_CHANNEL_NUM(EXAMPLE_ADC_UNIT))
 					{
 						// ESP_LOGI(TAG, "Unit: %s, Channel: %" PRIu32 ", Value: %" PRIx32, unit, chan_num, data);
-						uint16_t data_16bit = convert_data_16bit_2(data);
-						// printf((char *)&data_16bit);
-						tinyusb_cdcacm_write_queue(0, (uint8_t *)&data_16bit, 2);
-						// tinyusb_cdcacm_write_queue(msg.itf, msg.buf, msg.buf_len);
-
-						// tud_cdc_write_flush();
+						buff[j++] = convert_data_16bit_2(data);
 					}
 					else
 					{
 						// ESP_LOGW(TAG, "Invalid data [%s_%" PRIu32 "_%" PRIx32 "]", unit, chan_num, data);
 					}
 				}
+				if (have_data)
+					tinyusb_cdcacm_write_queue(0, (uint8_t *)buff, 2 * j);
+
 				/**
 				 * Because printing is slow, so every time you call `ulTaskNotifyTake`, it will immediately return.
 				 * To avoid a task watchdog timeout, add a delay here. When you replace the way you process the data,
 				 * usually you don't need this delay (as this task will block for a while).
 				 */
-				vTaskDelay(1);
+				// vTaskDelay(1);
 			}
 			else if (ret == ESP_ERR_TIMEOUT)
 			{
