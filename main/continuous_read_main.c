@@ -32,7 +32,7 @@
 #define EXAMPLE_ADC_GET_DATA(p_data) ((p_data)->type2.data)
 #endif
 
-#define EXAMPLE_READ_LEN 256
+#define EXAMPLE_READ_LEN 256 * 2
 
 #if CONFIG_IDF_TARGET_ESP32
 static adc_channel_t channel[2] = {ADC_CHANNEL_6, ADC_CHANNEL_7};
@@ -63,7 +63,7 @@ static void continuous_adc_init(adc_channel_t *channel, uint8_t channel_num, adc
 	ESP_ERROR_CHECK(adc_continuous_new_handle(&adc_config, &handle));
 
 	adc_continuous_config_t dig_cfg = {
-			.sample_freq_hz = 10 * 1000,
+			.sample_freq_hz = 20 * 1000,
 			.conv_mode = EXAMPLE_ADC_CONV_MODE,
 			.format = EXAMPLE_ADC_OUTPUT_TYPE,
 	};
@@ -290,17 +290,20 @@ void app_main(void)
 
 		uint16_t buff[EXAMPLE_READ_LEN];
 		bool have_data = false;
+		bool first_byte = false;
 		int j = 0;
 
 		while (1)
 		{
 			have_data = false;
+
 			ret = adc_continuous_read(handle, result, EXAMPLE_READ_LEN, &ret_num, 0);
 			if (ret == ESP_OK)
 			{
 				have_data = true;
 				// ESP_LOGI("TASK", "ret is %x, ret_num is %" PRIu32 " bytes", ret, ret_num);
 				j = 0;
+				uint32_t agv = 0;
 				for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES)
 				{
 					adc_digi_output_data_t *p = (adc_digi_output_data_t *)&result[i];
@@ -310,7 +313,18 @@ void app_main(void)
 					if (chan_num < SOC_ADC_CHANNEL_NUM(EXAMPLE_ADC_UNIT))
 					{
 						// ESP_LOGI(TAG, "Unit: %s, Channel: %" PRIu32 ", Value: %" PRIx32, unit, chan_num, data);
-						buff[j++] = convert_data_16bit_2(data);
+						if (first_byte == false)
+						{
+							first_byte = true;
+							agv = data;
+						}
+						else
+						{
+							first_byte = false;
+							agv += data;
+							buff[j++] = convert_data_16bit_2(agv / 2);
+						}
+						// ESP_LOGI(TAG, "Unit: %s, Channel: %" PRIu32 ", Value: %" PRIx32, unit, chan_num, data);
 					}
 					else
 					{
