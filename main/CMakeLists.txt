@@ -1,2 +1,2 @@
-idf_component_register(SRCS "continuous_read_main.c"
+idf_component_register(SRCS "main.c" "adc.c" "usb.c"
                     INCLUDE_DIRS ".")
